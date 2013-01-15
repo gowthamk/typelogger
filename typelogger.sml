@@ -8,7 +8,7 @@ struct
   structure A = Ast
   val say = Control_Print.say
 
-  datatype absty = VarTy of string | ArrowTy of string list * string | BaseTy of string
+  datatype absty = VarTy of string | ArrowTy of string list * string list | BaseTy of string | TupleTy of absty list
 
   fun printSymbol (Symbol.SYMBOL(w,valname)) = say (valname)
 
@@ -22,10 +22,17 @@ struct
     ) atypelist
   )
 
+  fun flattenTuples (atypelist: absty list) : absty list = case atypelist of
+      [] => []
+    | aty::atys => (case aty of
+          TupleTy alist => alist@(flattenTuples atys)
+        | _ => aty::(flattenTuples atys)
+        )
+
   fun aTyToString aty = case aty of
       VarTy s => s
     | BaseTy s => s
-    | ArrowTy (l,s) => "("^(String.concatWith "->" l)^"->"^s^")"
+    | ArrowTy (l,s) => "("^(String.concatWith "->" l)^"->"^( "("^(String.concatWith "," s)^")" )^")"
 
   fun analyzeType (ty:A.ty):absty = case ty of
       A.VarTy tyvar => VarTy "'a"
@@ -46,36 +53,42 @@ struct
               (analyzeType (t))
           ) tlist
         )
-        val tyargslist = 
-          if (tyconstr = "->") then (* assert(len argslist >=2) *)
-            let
-              val n = (length argslist) - 1
-              val funargs = List.take(argslist,n)
-              val funres = List.nth(argslist,n)
-              val (resfunargs,resfunres) = (case funres of
-                  ArrowTy (l,res) => ((List.map (fn s => BaseTy s) l),(BaseTy res))
-                | _ => ([],funres)
-              )
-            in
-              (abstractArrows funargs)@(resfunargs)@([resfunres]) (* Bug: arrows filtered from ((t->t')->t'') list *)
-            end
-          else
-            argslist
-
-        val tyargsstrs = List.map (fn(tyarg) => aTyToString tyarg) tyargslist
       in
         if(tyconstr = "->") then
           let
-            val n = (length tyargsstrs) - 1
-            val funargsstrs = List.take(tyargsstrs,n) 
-            val funresstr = List.nth(tyargsstrs,n)
+            val (tyargslist,tyreslist) = 
+              let
+                val n = (length argslist) - 1
+                val funargs = flattenTuples (List.take(argslist,n))
+                val funres = List.nth(argslist,n)
+                val (resfunargs,resfunres) = (case funres of
+                    ArrowTy (l,reslist) => ((List.map (fn s => BaseTy s) l),
+                      (List.map (fn res => BaseTy res) reslist))
+                  | TupleTy abslist => ([],abslist)
+                  | _ => ([],[funres])
+                )
+              in
+                ((abstractArrows (funargs @ resfunargs)),resfunres) (* Bug: arrows filtered from ((t->t')->t'') list *)
+              end
+            val funargsstrs = List.map (fn(tyarg) => aTyToString tyarg) tyargslist
+            val funresstr = List.map (fn(tyarg) => aTyToString tyarg) tyreslist
           in
             ArrowTy (funargsstrs,funresstr)
           end
         else
-          BaseTy ((String.concatWith " " tyargsstrs)^" "^tyconstr)
+          let
+            val tyargsstrs = List.map (fn(tyarg) => aTyToString tyarg) argslist
+          in
+            BaseTy (String.concatWith " " (tyargsstrs@[tyconstr]))
+          end
       end
     | A.MarkTy(ty,region) => analyzeType ty
+    | A.TupleTy tylist => 
+      let
+        val atylist = List.map (fn ty => (analyzeType ty)) tylist
+      in
+        TupleTy (flattenTuples atylist) (* (a,(b,c)) --> (a,b,c) *)
+      end
     | _ => VarTy "'a"
 
   fun analyzeValType (v,t) = (printSymbol v; say (" : "^(aTyToString(analyzeType t))^"\n"))
