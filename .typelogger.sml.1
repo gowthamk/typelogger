@@ -1,0 +1,53 @@
+signature TYPE_LOGGER =
+sig
+  val analyzeAst : Ast.dec -> unit
+end
+
+structure TypeLogger : TYPE_LOGGER = 
+struct
+  structure A = Ast
+  val say = Control_Print.say
+
+  fun printSymbol (Symbol.SYMBOL(w,valname)) = say ("[TypeLogger : "^valname^"]\n")
+
+  fun printSymbolIndented (s,n) = if (n <= 0) then printSymbol s 
+    else let val m = n-1 in (say("  "); (printSymbolIndented (s,m))) end
+
+  fun analyzeTyVar (tyvar,n) = case tyvar of
+      A.Tyv s => (say("tyv");printSymbolIndented (s,n))
+    | A.MarkTyv(tyv,region) => analyzeTyVar (tyv,n)
+
+  fun analyzeType ty = 
+    let
+      fun analyzeType' (ty,n) = case ty of
+        A.VarTy tyvar => analyzeTyVar (tyvar,n)
+      | A.ConTy(slist,tlist) => ((List.foldl (fn(sym,_)=>(say("sym");printSymbolIndented (sym,n))) () slist);
+          (List.foldl (fn(t,_)=>(analyzeType' (t,n+1))) () tlist))
+      | A.MarkTy(ty,region) => analyzeType' (ty,n)
+      | _ => ()
+    in
+      analyzeType' (ty,0)
+    end
+
+  fun analyzeValType (v,t) = (printSymbol v; analyzeType t)
+
+  fun analyzeSpec spec = case spec of
+      A.ValSpec stpairlist => List.foldl (fn((s,t),_)=>(analyzeValType (s,t))) () stpairlist
+    | _ => ()
+
+  fun analyzeSigExp sigex = case sigex of
+      A.AugSig(sigex,speclist) => analyzeSigExp sigex (*Only analyze base sig specs*)
+    | A.MarkSig(sigex,region) => analyzeSigExp sigex
+    | A.VarSig _ => ()
+    | A.BaseSig speclist => List.foldl (fn(spec,_) => analyzeSpec spec) () speclist
+
+  fun analyzeSigDec sigdec = case sigdec of
+      A.Sigb {name,def} => analyzeSigExp def
+    | A.MarkSigb(sigb,region) => analyzeSigDec sigb
+
+  fun analyzeAst ast = case ast of
+      A.SigDec slist => List.foldl (fn(sigdec,_) => analyzeSigDec sigdec) () slist
+	  | A.MarkDec(dec,region) => analyzeAst dec
+    | _ => say "[analyzeAst: Got non SigDec]\n" (* We only care about Signature defs *)
+  
+end

@@ -1,0 +1,9 @@
+(* typelogger.cm
+ * To aid in Membership type candidate search
+ *)
+
+Group is
+  signature TYPE_LOGGER
+  strucutre TypeLogger
+is
+  typelogger.sml
