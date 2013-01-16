@@ -14,9 +14,26 @@ struct
 
   exception HashMissEx
 
-  val say = Control_Print.say
+  (* TODO: Refractor FileLogger *)
+  
+  fun fileLogger (fname:string):(TextIO.outstream * (string -> unit)) =
+    let
+      val outs = TextIO.openOut fname
+    in
+      (outs,(fn str => TextIO.output(outs,str)))
+    end
+
+  val logger = ref (Control_Print.say)
+
+  fun say str = 
+    let
+      val f = !logger
+    in
+      f str
+    end
 
   datatype absty = VarTy of string | ArrowTy of string list * string list | BaseTy of string | TupleTy of absty list
+
 
   fun printSymbol (Symbol.SYMBOL(w,valname)) = say (valname)
 
@@ -239,7 +256,17 @@ struct
     | A.BaseSig speclist => printFGGroups (analyzeSpecList speclist)
 
   fun analyzeSigDec sigdec = case sigdec of
-      A.Sigb {name,def} => analyzeSigExp def
+      A.Sigb {name,def} => 
+        let
+          val signame = symbolToName name
+          val (outs,f) = fileLogger ("annots/"^signame^".annot") 
+        in
+          logger := f;
+          analyzeSigExp def;
+          logger := Control_Print.say;
+          TextIO.closeOut outs
+        end
+
     | A.MarkSigb(sigb,region) => analyzeSigDec sigb
 
   fun analyzeAst ast = case ast of
