@@ -113,101 +113,130 @@ struct
     end
   )
 
-  fun findFCandidates stpairlist = (
+  fun inductFCandidates spec hash = (
+    let
+      fun f stpairlist hash = 
+        List.foldl
+          (fn ((s,ty),hash) => (
+            let
+              val fnname = symbolToName s
+              val (ArrowTy (argtys,restys)) = analyzeType ty
+              val xn = listIntersection (argtys,restys)
+              val emptySet = StringSet.empty
+            in
+              List.foldl
+                (fn (aty,hash) => (
+                  let
+                    val set = ((HashTable.lookup hash aty) handle HashMissEx => emptySet )
+                    val newset = StringSet.add (set,fnname)
+                    val _ = HashTable.insert hash (aty,newset)
+                  in
+                    hash
+                  end
+                ))
+                hash
+                xn
+              (* end fold *)
+            end
+          ))
+          hash
+          stpairlist
+        (* end fold *)
+    in
+      case spec of
+          A.ValSpec stpairlist => f stpairlist hash
+        | A.MarkSpec (spec,_) => inductFCandidates spec hash
+        | _ => hash
+    end
+  )
+
+  fun inductGCandidates spec hash = (
+    let
+      fun g stpairlist hash =
+        List.foldl
+          (fn ((s,ty),hash) => (
+            let
+              val fnname = symbolToName s
+              val (ArrowTy (argtys,restys)) = analyzeType ty
+            in
+              List.foldl
+                (fn (aty,hash) => (
+                  let
+                    val set = ((HashTable.lookup hash aty) handle HashMissEx => (StringSet.empty) )
+                  in
+                    if (StringSet.isEmpty set) then
+                      hash
+                    else
+                      let
+                        val newset = StringSet.add (set,fnname)
+                        val _ = HashTable.insert hash (aty,newset)
+                      in
+                        hash
+                      end
+                  end
+                ))
+                hash
+                argtys
+              (* end fold *)
+            end
+          ))
+          hash
+          stpairlist
+        (* end fold *)
+    in
+      case spec of
+          A.ValSpec stpairlist => g stpairlist hash
+        | A.MarkSpec (spec,_) => inductGCandidates spec hash
+        | _ => hash
+    end
+  )
+
+  fun analyzeSpecList speclist =
     let
       val hash_fn = HashString.hashString
       val cmp_fn = (op =)
       val hash = HashTable.mkTable(hash_fn,cmp_fn) (23,HashMissEx)
+      val tytblF = (
+        List.foldl
+          (fn (spec,hash) => (
+            inductFCandidates spec hash
+          ))
+          hash
+          speclist
+        (*end fold*)
+      )
+      val tytblFG = (
+        List.foldl
+          (fn (spec,hash) => (
+            inductGCandidates spec hash
+          ))
+          tytblF
+          speclist
+        (*end fold*)
+      )
     in
-      List.foldl
-        (fn ((s,ty),hash) => (
-          let
-            val fnname = symbolToName s
-            val (ArrowTy (argtys,restys)) = analyzeType ty
-            val xn = listIntersection (argtys,restys)
-            val emptySet = StringSet.empty
-          in
-            List.foldl
-              (fn (aty,hash) => (
-                let
-                  val set = ((HashTable.lookup hash aty) handle HashMissEx => emptySet )
-                  val newset = StringSet.add (set,fnname)
-                in
-                  ((HashTable.insert hash (aty,newset));hash)
-                end
-              ))
-              hash
-              xn
-            (* end fold *)
-          end
-        ))
-        hash
-        stpairlist
-      (* end fold *)
-    end 
-  )
-
-  fun findGCandidates stpairlist hash = (
-    List.foldl
-      (fn ((s,ty),hash) => (
-        let
-          val fnname = symbolToName s
-          val (ArrowTy (argtys,restys)) = analyzeType ty
-        in
-          List.foldl
-            (fn (aty,hash) => (
-              let
-                val set = ((HashTable.lookup hash aty) handle HashMissEx => StringSet.empty )
-              in
-                if (StringSet.isEmpty set) then
-                  hash
-                else
-                  let
-                    val newset = StringSet.add (set,fnname)
-                  in
-                    ((HashTable.insert hash (aty,newset)); hash)
-                  end
-              end
-            ))
-            hash
-            argtys
-          (* end fold *)
-        end
-      ))
-      hash
-      stpairlist
-    (* end fold *)
-  )
+      tytblFG
+    end
 
   fun printFGGroups hash = (
     let
-      val sets = HashTable.listItems hash
+      val tysetpairs = HashTable.listItemsi hash
     in
       List.foldl
-        (fn (set,_) => (
-          say ("Group : "^(String.concatWith ", " (StringSet.listItems set))^"\n") 
+        (fn ((aty,set),_) => (
+          say ("[Group("^aty^") : "^(String.concatWith ", " (StringSet.listItems set))^"]\n") 
         ))
         ()
-        sets
+        tysetpairs
       (*end fold*)
     end
   )
-
-  fun analyzeSpec spec = case spec of
-      A.ValSpec stpairlist =>
-        let
-          val tytblF = findFCandidates stpairlist
-          val tytblFG = findGCandidates stpairlist tytblF
-        in
-          printFGGroups tytblFG
-        end
-    | _ => ()
 
   fun analyzeSigExp sigex = case sigex of
       A.AugSig(sigex,speclist) => analyzeSigExp sigex (*Only analyze base sig specs*)
     | A.MarkSig(sigex,region) => analyzeSigExp sigex
     | A.VarSig _ => ()
-    | A.BaseSig speclist => List.foldl (fn(spec,_) => analyzeSpec spec) () speclist
+    | A.BaseSig speclist => printFGGroups (analyzeSpecList speclist)
 
   fun analyzeSigDec sigdec = case sigdec of
       A.Sigb {name,def} => analyzeSigExp def
@@ -216,6 +245,6 @@ struct
   fun analyzeAst ast = case ast of
       A.SigDec slist => List.foldl (fn(sigdec,_) => analyzeSigDec sigdec) () slist
 	  | A.MarkDec(dec,region) => analyzeAst dec
-    | _ => say "[analyzeAst: Got non SigDec]\n" (* We only care about Signature defs *)
+    | _ => () (* We only care about Signature defs *)
   
 end
