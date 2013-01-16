@@ -58,6 +58,12 @@ struct
       VarTy s => s
     | BaseTy s => s
     | ArrowTy (l,s) => "("^(String.concatWith "->" l)^"->"^( "("^(String.concatWith "," s)^")" )^")"
+    | TupleTy absl => 
+        let
+          val l = List.map (fn aty => (aTyToString aty)) absl
+        in
+          "("^(String.concatWith "," l)^")"
+        end
 
   fun analyzeType (ty:A.ty):absty = case ty of
       A.VarTy tyvar => VarTy "'a"
@@ -145,7 +151,7 @@ struct
                 (fn (aty,hash) => (
                   let
                     val set = ((HashTable.lookup hash aty) handle HashMissEx => emptySet )
-                    val newset = StringSet.add (set,fnname)
+                    val newset = StringSet.add (set,fnname^"(F)")
                     val _ = HashTable.insert hash (aty,newset)
                   in
                     hash
@@ -185,7 +191,7 @@ struct
                       hash
                     else
                       let
-                        val newset = StringSet.add (set,fnname)
+                        val newset = StringSet.add (set,fnname^"(G)")
                         val _ = HashTable.insert hash (aty,newset)
                       in
                         hash
